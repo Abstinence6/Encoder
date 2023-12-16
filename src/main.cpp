@@ -9,155 +9,6 @@
 #include "ESPRotary.h"
 #include "Button2.h"
 
-const char* ssid = "Mi Wi-Fi";
-const char* password = "12345678";
-byte mac[] = {0x40, 0xf5, 0x20, 0x33, 0x82, 0xef};
-
-WiFiClient client;
-HADevice device(mac, sizeof(mac));
-HAMqtt mqtt(client, device);
-
-#define BROKER_ADDR     IPAddress(192,168,1,159)
-HABinarySensor Button("Button");
-HABinarySensor Mode("Mode");
-HASensorNumber Bright("Bright");
-HASensorNumber Color("Color");
-
-ESPRotary r(D5,D6,2);
-Button2 b;
-void rotate(ESPRotary& r); 
-void click(Button2& btn) ;
-void dblclick(Button2& btn) ;
-
-void setup() {
-  Serial.begin(115200);
-  delay(10);
-
-  Serial.print("\nConnecting to ");
-  Serial.print(ssid);
-
-  WiFi.mode(WIFI_STA); 
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  device.setName("Dimmer");
-  device.setSoftwareVersion("1.0.0");
-  device.enableSharedAvailability();
-  device.enableLastWill();
-
-  Serial.println("\nWiFi connected");
-  Serial.println("\nIP address: ");
-  Serial.println(WiFi.localIP());
-
-  mqtt.begin(BROKER_ADDR,1883,"HAMQTT","gisterezis");
-  Serial.println("\nMQTT connected");
-
-  ArduinoOTA.onStart([]() {
-    Serial.println("\nOTA Start");
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nOTA End");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("\nOTA Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("\nOTA Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("\nOTA Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("\nOTA Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("\nOTA Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("\nOTA Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("\nOTA End Failed");
-  });
-  ArduinoOTA.begin();
-  Serial.println("\nOTA Ready");
-
-  r.begin(D5,D6,2);
-  r.setChangedHandler(rotate);
-
-  b.begin(D7);
-  b.setChangedHandler(click);
-  b.setDoubleClickHandler(dblclick);
-  Serial.println("Encoder connected");
-
-  Bright.setValue(0);
-  Bright.setIcon("mdi:brightness-6");
-  Bright.setName("Bright");
-
-  Color.setValue(0);
-  Color.setIcon("mdi:palette-outline");
-  Color.setName("Color");
-
-  Button.setCurrentState(0); 
-  Button.setName("Button"); 
-  Button.setIcon("mdi:button-pointer");
-
-  Mode.setCurrentState(0); 
-  Mode.setName("Mode"); 
-  Mode.setIcon("mdi:toggle-switch-off-outline");
-}
-
-void rotate(ESPRotary& r) {
-  if(!b.isPressed())
-  {
-    if(r.getDirection() == rotary_direction::left)
-      Bright.setValue(r.getIncrement());
-    else
-      Bright.setValue(-r.getIncrement()); 
-  }
-  else
-  {
-    if(r.getDirection() == rotary_direction::left)
-      Color.setValue(r.getIncrement());
-    else
-      Color.setValue(-r.getIncrement());
-  }
-  
-  mqtt.loop();
-  Bright.setValue(0);
-  Color.setValue(0);
-}
-
-void click(Button2& btn) {
-  Button.setState(b.isPressed());
-  mqtt.loop();
-}
-
-void dblclick(Button2& btn){
-  Mode.setState(!Mode.getCurrentState());
-  mqtt.loop();
-}
-
-void loop() {
-  ArduinoOTA.handle();
-
-  r.loop();
-  b.loop();
-
-  static long long del= millis();
-  if (millis() - del > 1e4)
-  {
-    del = millis();
-    mqtt.loop();
-  }
-}
-
-/*
-#include <Arduino.h>
-#include <ArduinoHA.h>
-
-#include <ESP8266WiFi.h>  
-#include <ESP8266HTTPClient.h>
-
-#include "ArduinoOTA.h"
-
-#include "ESPRotary.h"
-#include "Button2.h"
-
 #include "EEPROM.h"
 
 const char* ssid = "Mi Wi-Fi";
@@ -169,18 +20,24 @@ HADevice device(mac, sizeof(mac));
 HAMqtt mqtt(client, device);
 
 #define BROKER_ADDR     IPAddress(192,168,1,159)
-HABinarySensor Button("Button");
-HABinarySensor Mode("Mode");
-HASensorNumber Bright("Bright");
-HASensorNumber Color("Color");
+HABinarySensor On("On");
+HABinarySensor DayMode("DayMode");
+
+HANumber Bright("Bright");
+HANumber Color("Color");
+HASensorNumber Battery("Battery");
 
 ESPRotary r(D5,D6,2);
 Button2 b;
 void rotate(ESPRotary& r); 
 void click(Button2& btn) ;
 void dblclick(Button2& btn) ;
+void onNumberCommand(HANumeric number, HANumber* sender);
 
 int Col = 0 , Bri = 0;
+
+unsigned int raw=0;
+float volt=0.0;
 
 void setup() {
   Serial.begin(115200);
@@ -233,40 +90,58 @@ void setup() {
   r.setChangedHandler(rotate);
 
   b.begin(D7);
-  b.setChangedHandler(click);
+  b.setClickHandler(click);
+  b.setLongClickHandler(click);
   b.setDoubleClickHandler(dblclick);
   Serial.println("Encoder connected");
 
-  EEPROM.begin(16);
+  EEPROM.begin(20);
 
+  bool OnTmp = 0, ModeTmp = 0;
   EEPROM.get(0, Bri);
   delay(10);
   EEPROM.get(4, Col);
   delay(10);
-  int tmp = 0;
-  EEPROM.get(8, tmp);
+  EEPROM.get(8, ModeTmp);
   delay(10);
-  Mode.setState(tmp);
+  DayMode.setState(ModeTmp);
+  EEPROM.get(12, OnTmp);
+  delay(10);
+  On.setState(OnTmp);
 
   Serial.println(Bri);
   Serial.println(Col);
-  Serial.println(tmp);
+  Serial.println(OnTmp);
+  Serial.println(ModeTmp);
 
-  Bright.setValue(Bri);
+  Bright.setState(Bri);
   Bright.setIcon("mdi:brightness-6");
   Bright.setName("Bright");
+  Bright.onCommand(onNumberCommand);
 
-  Color.setValue(Col);
+  Color.setState(Col);
   Color.setIcon("mdi:palette-outline");
   Color.setName("Color");
+  Color.onCommand(onNumberCommand);
 
-  Button.setCurrentState(0); 
-  Button.setName("Button"); 
-  Button.setIcon("mdi:button-pointer");
+  Battery.setIcon("mdi:battery");
+  Battery.setName("Battery");
+  //Batery.onCommand(onNumberCommand);
 
-  Mode.setCurrentState(tmp); 
-  Mode.setName("Mode"); 
-  Mode.setIcon("mdi:toggle-switch-off-outline");
+  On.setCurrentState(OnTmp); 
+  On.setName("On"); 
+  On.setIcon("mdi:button-pointer");
+
+  DayMode.setCurrentState(ModeTmp); 
+  DayMode.setName("DayMode"); 
+  DayMode.setIcon("mdi:toggle-switch-off-outline");
+
+  pinMode(A0, INPUT);
+  raw = analogRead(A0);
+  volt=raw/1023.0;
+  volt=volt*4.2;
+  Battery.setValue(volt);
+  mqtt.loop();
 }
 
 void rotate(ESPRotary& r) {
@@ -280,20 +155,20 @@ void rotate(ESPRotary& r) {
     if(Bri > 100) Bri = 100;
     if(Bri < 0) Bri = 0;
 
-    Bright.setValue(Bri);
+    Bright.setState(Bri);
     EEPROM.put(0, Bri);
   }
   else
   {
     if(r.getDirection() == rotary_direction::left)
-      Col+=r.getIncrement();
+      Col+=r.getIncrement()*2;
     else
-      Col-=r.getIncrement();
+      Col-=r.getIncrement()*2;
 
     if(Col > 360) Col = 0;
     if(Col < 0) Col = 0;
 
-    Color.setValue(Col);
+    Color.setState(Col);
     EEPROM.put(4, Col);
   }
   
@@ -302,15 +177,40 @@ void rotate(ESPRotary& r) {
 }
 
 void click(Button2& btn) {
-  Button.setState(b.isPressed());
+  On.setState(!On.getCurrentState());
+  EEPROM.put(12, On.getCurrentState());
+  raw = analogRead(A0);
+  volt=raw/10.230;
+  //volt=volt*4.2;
+  Battery.setValue(volt);
   mqtt.loop();
+  EEPROM.commit();
 }
 
 void dblclick(Button2& btn){
-  Mode.setState(!Mode.getCurrentState());
-  EEPROM.put(8, Mode.getCurrentState());
+  DayMode.setState(!DayMode.getCurrentState());
+  EEPROM.put(8, DayMode.getCurrentState());
+  raw = analogRead(A0);
+  volt=raw/10.230;
+  //volt=volt*4.2;
+  Battery.setValue(volt);
   mqtt.loop();
   EEPROM.commit();
+}
+
+void onNumberCommand(HANumeric number, HANumber* sender)
+{
+  if (sender == &Bright)
+    Bri = number.toUInt32();
+
+  if (sender == &Color)
+    Col = number.toUInt32();
+
+  sender->setState(number);
+  Bright.setState(Bri);
+  Color.setState(Col);
+
+ mqtt.loop();
 }
 
 void loop() {
@@ -322,8 +222,12 @@ void loop() {
   static long long del= millis();
   if (millis() - del > 1e4)
   {
+    raw = analogRead(A0);
+    volt=raw/10.230;
+    //volt=volt*4.2;
+    Battery.setValue(volt);
+
     del = millis();
     mqtt.loop();
   }
 }
-*/
