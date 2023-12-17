@@ -149,7 +149,7 @@ EEPROM.commit();
   DayMode.setCurrentState(ModeTmp);
   DayMode.setName("DayMode");
   DayMode.setIcon("mdi:toggle-switch-off-outline");
-
+/*
   pinMode(A0, INPUT);
   raw = ((analogRead(A0) / 1023.0) * 4.2);
   volt = (raw - 3.2) * 100.0;
@@ -159,11 +159,12 @@ EEPROM.commit();
     Serial.println(volt);
     ESP.deepSleep(1e9);
   }
+*/
   mqtt.loop();
-
+#ifdef AllowSleep
   wifi_set_sleep_type(LIGHT_SLEEP_T); // MODEM_SLEEP_T
   gpio_pin_wakeup_enable(D5, GPIO_PIN_INTR_HILEVEL);
-
+#endif
   LastTact = millis();
 }
 
@@ -271,6 +272,7 @@ void loop() {
   b.loop();
 
   if ((millis() - LastTact > 1e4)) {
+    /*
     raw = ((analogRead(A0) / 1023.0) * 4.2);
     volt = (raw - 3.2) * 100.0;
     Battery.setValue(volt);
@@ -279,6 +281,7 @@ void loop() {
       Serial.println(raw);
       ESP.deepSleep(1e9);
     }
+    */
 #ifdef AllowSleep
     if (sleep) {
       WiFi.forceSleepWake();
