@@ -1,39 +1,41 @@
 # Encoder
 
 <!-- AI-ASSISTANT-NOTES:START -->
-## AI working map
+## Мапа роботи для AI-агентів
 
-Last updated: 2026-06-28. This section is written for coding agents that need to understand the repository quickly.
+Останнє оновлення: 2026-06-28. Цей розділ написаний для агентів кодування, яким потрібно швидко зрозуміти репозиторій.
 
-### Purpose
+Імена файлів, API, символів, гілок, команд і форматів залишені без перекладу навмисно.
+
+### Призначення
 
 ESP8266 rotary encoder and button controller exposed to Home Assistant over MQTT for brightness, color, day mode, on/off and battery telemetry.
 
-### Project type
+### Тип проєкту
 
-PlatformIO Arduino firmware for ESP8266.
+PlatformIO Arduino прошивка для ESP8266.
 
-### Primary entrypoints and file roles
+### Основні точки входу і ролі файлів
 
 - `platformio.ini` - D1 mini target with ArduinoHA, ESPRotary, Button2
-- `src/main.cpp` - MQTT entities, encoder/button callbacks, battery ADC, EEPROM state, optional sleep; key symbols: setup, rotate, click, dblclick, onNumberCommand, loop
+- `src/main.cpp` - MQTT entities, encoder/button callbacks, battery ADC, EEPROM state, optional sleep; ключові символи: setup, rotate, click, dblclick, onNumberCommand, loop
 
-### Source index
+### Індекс джерел
 
-- `src/main.cpp` - main implementation / event handlers; symbols: rotate, click, dblclick, onNumberCommand
+- `src/main.cpp` - головна реалізація / обробники подій; символи: rotate, click, dblclick, onNumberCommand
 
-### Runtime / data flow
+### Потік виконання / даних
 
 - Encoder rotation/click handlers update ArduinoHA entities and persist selected state in EEPROM.
 - Home Assistant number commands flow through onNumberCommand().
 - loop() keeps MQTT/OTA active and may enter sleep depending on compile-time flags.
 
-### Build, run, or validate
+### Збірка, запуск або перевірка
 
 - `pio run -e d1_mini`
 - `pio run -e d1_mini_ota -t upload`
 
-### AI agent guidance
+### Підказки для AI-агентів
 
 - EEPROM addresses are manually assigned; keep them documented if adding values.
 - ADC battery conversion depends on resistor divider constants.
